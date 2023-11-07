@@ -69,9 +69,8 @@ func CopyContextToFiberContext(context interface{}, requestContext *fasthttp.Req
 // HTTPMiddleware wraps net/http middleware to fiber middleware
 func HTTPMiddleware(mw func(http.Handler) http.Handler) fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		var next bool
+		var err error
 		nextHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			next = true
 			// Convert again in case request may modify by middleware
 			c.Request().Header.SetMethod(r.Method)
 			c.Request().SetRequestURI(r.RequestURI)
@@ -82,14 +81,19 @@ func HTTPMiddleware(mw func(http.Handler) http.Handler) fiber.Handler {
 				}
 			}
 			CopyContextToFiberContext(r.Context(), c.Context())
+
+			err = c.Next()
+
+			c.Response().Header.VisitAll(func(k, v []byte) {
+				w.Header().Add(string(k), string(v))
+			})
+
+			w.WriteHeader(c.Response().StatusCode())
 		})
 
-		if err := HTTPHandler(mw(nextHandler))(c); err != nil {
+		_ = HTTPHandler(mw(nextHandler))(c)
+		if err != nil {
 			return err
-		}
-
-		if next {
-			return c.Next()
 		}
 		return nil
 	}
